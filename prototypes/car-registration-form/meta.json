@@ -1,0 +1,15 @@
+{
+  "title": "Car registration form",
+  "area": "Vehicles",
+  "description": "How should a user register a car: one long form, a step-by-step wizard, or a VIN lookup that prefills the vehicle details first?",
+  "created": "2026-11-27",
+  "status": "draft",
+  "vendor": "vaadin-25.3.7",
+  "theme": "aura",
+  "variants": [
+    { "id": "a", "label": "Single form" },
+    { "id": "b", "label": "Step by step" },
+    { "id": "c", "label": "VIN lookup first" }
+  ],
+  "snapshots": []
+}

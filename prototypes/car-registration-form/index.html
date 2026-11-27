@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Car registration form</title>
+  <link rel="stylesheet" href="../../vendor/vaadin-25.3.7/aura.css" />
+  <script type="module" src="../../vendor/vaadin-25.3.7/vaadin.js"></script>
+  <style>
+    html, body { margin: 0; }
+    body { background: var(--aura-background-color); color: var(--vaadin-text-color); }
+
+    .page {
+      box-sizing: border-box;
+      max-width: 48rem;
+      margin: 0 auto;
+      padding: var(--vaadin-padding-xl) var(--vaadin-padding-l);
+      display: flex;
+      flex-direction: column;
+      gap: var(--vaadin-gap-l);
+    }
+    .page-header h1 { margin: 0; font-size: var(--aura-font-size-xl); line-height: var(--aura-line-height-xl); font-weight: var(--aura-font-weight-semibold); }
+    .page-header p { margin: var(--vaadin-gap-xs) 0 0; color: var(--vaadin-text-color-secondary); }
+
+    .form-section { display: flex; flex-direction: column; gap: var(--vaadin-gap-s); }
+    .form-section + .form-section { border-top: 1px solid var(--vaadin-border-color-secondary); padding-top: var(--vaadin-padding-l); }
+    .form-section h2 { margin: 0; font-size: var(--aura-font-size-l); line-height: var(--aura-line-height-l); font-weight: var(--aura-font-weight-semibold); }
+    .form-section .hint { margin: 0; color: var(--vaadin-text-color-secondary); font-size: var(--aura-font-size-s); }
+
+    vaadin-card { --vaadin-card-padding: var(--vaadin-padding-l); }
+    .card-body { display: flex; flex-direction: column; gap: var(--vaadin-gap-l); }
+
+    .actions { display: flex; flex-wrap: wrap; gap: var(--vaadin-gap-s); justify-content: flex-end; }
+    .actions .spacer { flex: 1; }
+
+    /* Variant b */
+    .step-title { margin: 0; color: var(--vaadin-text-color-secondary); font-size: var(--aura-font-size-s); }
+    .review dl { display: grid; grid-template-columns: minmax(8rem, max-content) 1fr; gap: var(--vaadin-gap-xs) var(--vaadin-gap-m); margin: 0; }
+    .review dt { color: var(--vaadin-text-color-secondary); }
+    .review dd { margin: 0; }
+
+    /* Variant c */
+    #rest { display: flex; flex-direction: column; gap: var(--vaadin-gap-l); border-top: 1px solid var(--vaadin-border-color-secondary); padding-top: var(--vaadin-padding-l); }
+    .lookup-row { display: flex; flex-wrap: wrap; gap: var(--vaadin-gap-s); align-items: flex-end; }
+    .lookup-row vaadin-text-field { flex: 1 1 16rem; }
+    .vehicle-found { display: flex; align-items: center; justify-content: space-between; gap: var(--vaadin-gap-s); flex-wrap: wrap; }
+    .vehicle-found strong { font-size: var(--aura-font-size-l); }
+
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main class="page" data-proto-id="page">
+    <header class="page-header">
+      <h1>Register a vehicle</h1>
+      <p>Register a car in your name. It takes about five minutes.</p>
+    </header>
+    <div id="app"></div>
+  </main>
+
+  <vaadin-dialog id="done-dialog" header-title="Registration submitted" data-proto-id="done-dialog"></vaadin-dialog>
+
+  <script type="module">
+    const variant = new URLSearchParams(location.search).get('variant') ?? 'a';
+    const app = document.getElementById('app');
+
+    // ---- Sample data (same in every variant) ----
+    const MAKES = ['BMW', 'Ford', 'Kia', 'Skoda', 'Tesla', 'Toyota', 'Volkswagen', 'Volvo'];
+    const FUELS = ['Petrol', 'Diesel', 'Hybrid', 'Plug-in hybrid', 'Electric'];
+    const COLOURS = ['Black', 'Blue', 'Grey', 'Green', 'Red', 'Silver', 'White'];
+    const LOOKUP = { make: 'Volvo', model: 'XC40 Recharge', year: 2024, fuel: 'Electric', colour: 'Silver' };
+    const SAMPLE_VIN = 'YV1XZ72V8R2123456';
+    const today = '2026-11-27';
+
+    const opts = (list) => list.map((v) => ({ label: v, value: v }));
+
+    // ---- Field groups (identical markup in every variant) ----
+    const vehicleFields = `
+      <vaadin-form-layout auto-responsive max-columns="2" expand-columns expand-fields data-proto-id="vehicle-form">
+        <vaadin-form-row>
+          <vaadin-text-field name="vin" label="VIN (vehicle identification number)" required
+            minlength="17" maxlength="17" allowed-char-pattern="[A-HJ-NPR-Za-hj-npr-z0-9]"
+            helper-text="17 characters, found on the registration certificate or windscreen"
+            error-message="Enter all 17 characters of the VIN" colspan="2"></vaadin-text-field>
+        </vaadin-form-row>
+        <vaadin-form-row>
+          <vaadin-combo-box name="make" label="Make" required allow-custom-value></vaadin-combo-box>
+          <vaadin-text-field name="model" label="Model" required></vaadin-text-field>
+        </vaadin-form-row>
+        <vaadin-form-row>
+          <vaadin-integer-field name="year" label="First registered (year)" required min="1950" max="2027"
+            step-buttons-visible error-message="Enter a year between 1950 and 2027"></vaadin-integer-field>
+          <vaadin-select name="fuel" label="Fuel type" required></vaadin-select>
+        </vaadin-form-row>
+        <vaadin-form-row>
+          <vaadin-select name="colour" label="Colour" required></vaadin-select>
+        </vaadin-form-row>
+      </vaadin-form-layout>`;
+
+    const ownerFields = `
+      <vaadin-form-layout auto-responsive max-columns="2" expand-columns expand-fields data-proto-id="owner-form">
+        <vaadin-form-row>
+          <vaadin-text-field name="name" label="Full name" required autocomplete="name"></vaadin-text-field>
+          <vaadin-date-picker name="dob" label="Date of birth" required max="2010-11-27"></vaadin-date-picker>
+        </vaadin-form-row>
+        <vaadin-form-row>
+          <vaadin-email-field name="email" label="Email" required autocomplete="email"
+            error-message="Enter a valid email address"></vaadin-email-field>
+          <vaadin-text-field name="phone" label="Phone" autocomplete="tel"></vaadin-text-field>
+        </vaadin-form-row>
+        <vaadin-form-row>
+          <vaadin-text-field name="street" label="Street address" required colspan="2" autocomplete="street-address"></vaadin-text-field>
+        </vaadin-form-row>
+        <vaadin-form-row>
+          <vaadin-text-field name="postal" label="Postal code" required autocomplete="postal-code"></vaadin-text-field>
+          <vaadin-text-field name="city" label="City" required autocomplete="address-level2"></vaadin-text-field>
+        </vaadin-form-row>
+      </vaadin-form-layout>`;
+
+    const registrationFields = `
+      <vaadin-form-layout auto-responsive max-columns="2" expand-columns expand-fields data-proto-id="registration-form">
+        <vaadin-form-row>
+          <vaadin-radio-group name="usage" label="Use of vehicle" required colspan="2">
+            <vaadin-radio-button value="Private" label="Private"></vaadin-radio-button>
+            <vaadin-radio-button value="Company" label="Company"></vaadin-radio-button>
+          </vaadin-radio-group>
+        </vaadin-form-row>
+        <vaadin-form-row>
+          <vaadin-date-picker name="start" label="Registration date" required min="${today}" value="${today}"></vaadin-date-picker>
+          <vaadin-text-field name="plate" label="Preferred plate (optional)" maxlength="7"
+            helper-text="Leave empty to get the next free plate"></vaadin-text-field>
+        </vaadin-form-row>
+        <vaadin-form-row>
+          <vaadin-checkbox name="terms" required colspan="2"
+            label="I confirm that the details are correct and that I own this vehicle"></vaadin-checkbox>
+        </vaadin-form-row>
+      </vaadin-form-layout>`;
+
+    const section = (id, title, hint, body) => `
+      <section class="form-section" data-proto-id="${id}">
+        <h2>${title}</h2>
+        ${hint ? `<p class="hint">${hint}</p>` : ''}
+        ${body}
+      </section>`;
+
+    // ---- Helpers ----
+    // Vaadin fields only: their slotted native inputs and radio buttons also carry the name.
+    const FIELDS = '[name]:not(input, textarea, vaadin-radio-button)';
+    const field = (name, root = app) => root.querySelector(`[name="${name}"]:not(input, textarea, vaadin-radio-button)`);
+    const validateIn = (root) => {
+      let ok = true;
+      let first = null;
+      root.querySelectorAll(FIELDS).forEach((f) => {
+        if (f.hidden || f.closest('[hidden]')) return;
+        let valid = typeof f.validate === 'function' ? f.validate() : true;
+        if (f.localName === 'vaadin-checkbox' && f.required) { valid = f.checked; f.invalid = !valid; }
+        if (!valid) { ok = false; first ??= f; }
+      });
+      first?.focus();
+      return ok;
+    };
+    const values = () => {
+      const v = {};
+      app.querySelectorAll(FIELDS).forEach((f) => { v[f.getAttribute('name')] = f.localName === 'vaadin-checkbox' ? f.checked : f.value; });
+      return v;
+    };
+    const fmtDate = (iso) => iso ? new Date(iso + 'T00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '–';
+    const summary = (v) => [
+      ['Vehicle', `${v.make || '–'} ${v.model || ''}`.trim() + (v.year ? `, ${v.year}` : '')],
+      ['VIN', v.vin || '–'],
+      ['Fuel / colour', `${v.fuel || '–'} / ${v.colour || '–'}`],
+      ['Owner', v.name || '–'],
+      ['Address', [v.street, [v.postal, v.city].filter(Boolean).join(' ')].filter(Boolean).join(', ') || '–'],
+      ['Contact', [v.email, v.phone].filter(Boolean).join(', ') || '–'],
+      ['Use', v.usage || '–'],
+      ['Registration date', fmtDate(v.start)],
+      ['Plate', v.plate ? v.plate.toUpperCase() : 'Next free plate'],
+    ];
+    const summaryHtml = (v) => `<dl>${summary(v).map(([k, val]) => `<dt>${k}</dt><dd>${val}</dd>`).join('')}</dl>`;
+
+    function initFields() {
+      field('make').items = MAKES;
+      field('fuel').items = opts(FUELS);
+      field('colour').items = opts(COLOURS);
+      field('plate').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase(); });
+      field('vin').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase(); });
+    }
+
+    function reset() {
+      app.querySelectorAll(FIELDS).forEach((f) => {
+        if (f.localName === 'vaadin-checkbox') f.checked = false;
+        else if (f.getAttribute('name') === 'start') f.value = today;
+        else f.value = '';
+        f.invalid = false;
+      });
+    }
+
+    const dialog = document.getElementById('done-dialog');
+    function submitted() {
+      const v = values();
+      dialog.renderer = (root) => {
+        root.innerHTML = `
+          <div class="review" style="display:flex;flex-direction:column;gap:var(--vaadin-gap-m);max-width:28rem">
+            <p style="margin:0">We have received your registration. Reference <strong>REG-2026-0481</strong>.
+            The registration certificate is sent to ${v.email || 'your email'} within two working days.</p>
+            ${summaryHtml(v)}
+          </div>`;
+      };
+      dialog.footerRenderer = (root) => {
+        if (root.firstChild) return;
+        const btn = document.createElement('vaadin-button');
+        btn.textContent = 'Done';
+        btn.setAttribute('theme', 'primary');
+        btn.setAttribute('data-proto-id', 'done-dialog-close');
+        btn.addEventListener('click', () => { dialog.opened = false; });
+        root.append(btn);
+      };
+      dialog.opened = true;
+    }
+
+    // ---- Variant a: one form, three sections ----
+    function renderA() {
+      app.innerHTML = `
+        <vaadin-card data-proto-id="registration-card">
+          <div class="card-body">
+            ${section('vehicle-section', 'Vehicle', '', vehicleFields)}
+            ${section('owner-section', 'Owner', '', ownerFields)}
+            ${section('registration-section', 'Registration', '', registrationFields)}
+            <div class="actions" data-proto-id="form-actions">
+              <vaadin-button id="cancel" theme="tertiary" data-proto-id="cancel-button">Cancel</vaadin-button>
+              <vaadin-button id="submit" theme="primary" data-proto-id="submit-button">Register vehicle</vaadin-button>
+            </div>
+          </div>
+        </vaadin-card>`;
+      initFields();
+      app.querySelector('#cancel').addEventListener('click', reset);
+      app.querySelector('#submit').addEventListener('click', () => { if (validateIn(app)) submitted(); });
+    }
+
+    // ---- Variant b: step by step ----
+    function renderB() {
+      const steps = [
+        { id: 'vehicle-section', title: 'Vehicle', body: vehicleFields },
+        { id: 'owner-section', title: 'Owner', body: ownerFields },
+        { id: 'registration-section', title: 'Registration', body: registrationFields },
+        { id: 'review-section', title: 'Review', body: '<div class="review" id="review"></div>' },
+      ];
+      app.innerHTML = `
+        <vaadin-card data-proto-id="registration-card">
+          <div class="card-body">
+            <vaadin-tabs id="steps" data-proto-id="step-tabs">
+              ${steps.map((s, i) => `<vaadin-tab ${i ? 'disabled' : ''}>${i + 1}. ${s.title}</vaadin-tab>`).join('')}
+            </vaadin-tabs>
+            ${steps.map((s, i) => `<div class="step" data-step="${i}" ${i ? 'hidden' : ''}>
+              ${section(s.id, s.title, `<span class="step-title">Step ${i + 1} of ${steps.length}</span>`, s.body)}
+            </div>`).join('')}
+            <div class="actions" data-proto-id="form-actions">
+              <vaadin-button id="back" theme="tertiary" data-proto-id="back-button" hidden>Back</vaadin-button>
+              <span class="spacer"></span>
+              <vaadin-button id="cancel" theme="tertiary" data-proto-id="cancel-button">Cancel</vaadin-button>
+              <vaadin-button id="next" theme="primary" data-proto-id="next-button">Next</vaadin-button>
+            </div>
+          </div>
+        </vaadin-card>`;
+      initFields();
+
+      const tabs = app.querySelector('#steps');
+      const tabEls = [...tabs.querySelectorAll('vaadin-tab')];
+      const stepEls = [...app.querySelectorAll('.step')];
+      const back = app.querySelector('#back');
+      const next = app.querySelector('#next');
+      let current = 0;
+      let reached = 0;
+
+      const show = (i) => {
+        current = i;
+        reached = Math.max(reached, i);
+        stepEls.forEach((el, n) => { el.hidden = n !== i; });
+        tabEls.forEach((t, n) => { t.disabled = n > reached; });
+        tabs.selected = i;
+        back.hidden = i === 0;
+        next.textContent = i === steps.length - 1 ? 'Register vehicle' : 'Next';
+        if (i === steps.length - 1) app.querySelector('#review').innerHTML = summaryHtml(values());
+      };
+      // Going forward validates the steps in between; going back is always allowed.
+      const goTo = (target) => {
+        for (let n = current; n < target; n++) {
+          if (!validateIn(stepEls[n])) { show(n); return; }
+        }
+        show(target);
+      };
+
+      tabs.addEventListener('selected-changed', (e) => { if (e.detail.value !== current && e.detail.value != null) goTo(e.detail.value); });
+      back.addEventListener('click', () => show(current - 1));
+      next.addEventListener('click', () => {
+        if (current === steps.length - 1) submitted();
+        else goTo(current + 1);
+      });
+      app.querySelector('#cancel').addEventListener('click', () => { reset(); reached = 0; show(0); });
+    }
+
+    // ---- Variant c: VIN lookup first, rest of the form after ----
+    function renderC() {
+      app.innerHTML = `
+        <vaadin-card data-proto-id="registration-card">
+          <div class="card-body">
+            <section class="form-section" data-proto-id="lookup-section">
+              <h2>Find your vehicle</h2>
+              <p class="hint">Enter the VIN and we fill in the vehicle details from the vehicle register.
+                Try <strong>${SAMPLE_VIN}</strong>.</p>
+              <div class="lookup-row">
+                <vaadin-text-field id="lookup-vin" label="VIN (vehicle identification number)" required
+                  minlength="17" maxlength="17" allowed-char-pattern="[A-HJ-NPR-Za-hj-npr-z0-9]" clear-button-visible
+                  error-message="Enter all 17 characters of the VIN" data-proto-id="lookup-vin"></vaadin-text-field>
+                <vaadin-button id="lookup" theme="primary" data-proto-id="lookup-button">Find vehicle</vaadin-button>
+              </div>
+              <vaadin-progress-bar id="lookup-progress" indeterminate hidden></vaadin-progress-bar>
+            </section>
+            <div id="rest" hidden>
+              <section class="form-section" data-proto-id="vehicle-section">
+                <div class="vehicle-found">
+                  <div>
+                    <h2>Vehicle</h2>
+                    <p class="hint" id="vehicle-hint">From the vehicle register. Check that the details are right.</p>
+                  </div>
+                  <vaadin-button id="edit-vehicle" theme="tertiary" data-proto-id="edit-vehicle-button">Edit details</vaadin-button>
+                </div>
+                ${vehicleFields}
+              </section>
+              ${section('owner-section', 'Owner', '', ownerFields)}
+              ${section('registration-section', 'Registration', '', registrationFields)}
+            </div>
+            <div class="actions" data-proto-id="form-actions">
+              <vaadin-button id="cancel" theme="tertiary" data-proto-id="cancel-button">Cancel</vaadin-button>
+              <vaadin-button id="submit" theme="primary" data-proto-id="submit-button" hidden>Register vehicle</vaadin-button>
+            </div>
+          </div>
+        </vaadin-card>`;
+      initFields();
+
+      const rest = app.querySelector('#rest');
+      const lookupVin = app.querySelector('#lookup-vin');
+      const progress = app.querySelector('#lookup-progress');
+      const submit = app.querySelector('#submit');
+      const vehicleNames = ['vin', 'make', 'model', 'year', 'fuel', 'colour'];
+      lookupVin.addEventListener('input', () => { lookupVin.value = lookupVin.value.toUpperCase(); });
+
+      const setVehicleReadonly = (ro) => {
+        vehicleNames.forEach((n) => { field(n).readonly = ro; });
+        app.querySelector('#edit-vehicle').hidden = !ro;
+        app.querySelector('#vehicle-hint').textContent = ro
+          ? 'From the vehicle register. Check that the details are right.'
+          : 'Correct any details that are wrong. Changes are checked before the registration is approved.';
+      };
+
+      app.querySelector('#lookup').addEventListener('click', () => {
+        if (!lookupVin.validate()) return;
+        progress.hidden = false;
+        setTimeout(() => {
+          progress.hidden = true;
+          field('vin').value = lookupVin.value;
+          Object.entries(LOOKUP).forEach(([k, val]) => { field(k).value = typeof val === 'number' ? String(val) : val; });
+          setVehicleReadonly(true);
+          rest.hidden = false;
+          submit.hidden = false;
+          field('name').focus();
+        }, 700);
+      });
+      app.querySelector('#edit-vehicle').addEventListener('click', () => setVehicleReadonly(false));
+      app.querySelector('#cancel').addEventListener('click', () => {
+        reset();
+        lookupVin.value = '';
+        lookupVin.invalid = false;
+        rest.hidden = true;
+        submit.hidden = true;
+      });
+      submit.addEventListener('click', () => { if (validateIn(rest)) submitted(); });
+      rest.hidden = true;
+    }
+
+    ({ a: renderA, b: renderB, c: renderC }[variant] ?? renderA)();
+  </script>
+</body>
+</html>
