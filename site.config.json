@@ -1,10 +1,9 @@
 {
-  "template": true,
   "customer": "Example Customer",
   "defaultTheme": "aura",
   "defaultVendor": "vaadin-25.3.7",
   "comments": {
-    "backend": "supabase",
+    "backend": "none",
     "project": "",
     "supabase": {
       "url": "",
